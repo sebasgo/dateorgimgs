@@ -68,6 +68,7 @@ fn read_img(entry: &std::fs::DirEntry) -> Result<ImgInfo, rexiv2::Rexiv2Error> {
 fn reorganize_images(imgs: &Vec<ImgInfo>, prefix: &str, dryrun: &bool) -> std::io::Result<()> {
     let digits = (imgs.len() as f32).log10().ceil() as usize;
     for (index, img) in imgs.iter().enumerate() {
+        let index = index + 1;
         let old_path = &img.path;
         let parent = old_path.parent().unwrap();
         let date_str = img.date.format("%Y-%m-%d %H-%M-%S");
