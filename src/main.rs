@@ -1,9 +1,11 @@
 extern crate chrono;
 extern crate clap;
 extern crate rexiv2;
+extern crate rayon;
 
 use std::path::Path;
 use std::os::unix::ffi::OsStrExt;
+use rayon::prelude::*;
 
 #[derive(PartialEq, Debug)]
 struct ImgInfo {
@@ -13,21 +15,25 @@ struct ImgInfo {
 }
 
 fn scan_for_images(dir: &Path) -> std::io::Result<Vec<ImgInfo>> {
-    let mut imgs: Vec<ImgInfo> = Vec::new();
+    let mut entries: Vec<std::fs::DirEntry> = Vec:: new();
     for entry in std::fs::read_dir(dir)? { 
         let entry = entry?;
         if entry.path().file_name().unwrap().as_bytes()[0] == b'.' {
             continue;
         }
+        entries.push(entry);
+    }
+    let mut imgs: Vec<ImgInfo> = entries.par_iter().filter_map(|ref entry| {
         match read_img(&entry) {
-            Ok(img) => imgs.push(img),
+            Ok(img) => Some(img),
             Err(error) => {
                 let path = entry.path();
                 let path_str = path.to_str().unwrap();
-                eprintln!("Error reading image metatada from {}: {}. Skipping.", path_str, error)
+                eprintln!("Error reading image metatada from {}: {}. Skipping.", path_str, error);
+                None
             }
         }
-    }
+    }).collect();
     imgs.sort_by(|a, b| a.date.cmp(&b.date));
     Ok(imgs)
 }
@@ -94,6 +100,7 @@ fn main() {
     if dryrun {
         println!("Dry run. No changes will be written out.");
     }
+    rexiv2::initialize().expect("Error initializing libexiv2");
     let imgs: Vec<ImgInfo> = match scan_for_images(path) {
         Ok(r)=> r,
         Err(error) => {
