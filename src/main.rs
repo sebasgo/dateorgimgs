@@ -25,9 +25,11 @@ use rayon::prelude::*;
 #[derive(PartialEq, Debug)]
 struct ImgInfo {
     path: std::path::PathBuf,
+    sidecar_path: Option<std::path::PathBuf>,
     date: chrono::NaiveDateTime,
     model: String,
 }
+
 
 fn scan_for_images(dir: &Path) -> std::io::Result<Vec<ImgInfo>> {
     let mut entries: Vec<std::fs::DirEntry> = Vec:: new();
@@ -61,41 +63,57 @@ fn read_img(entry: &std::fs::DirEntry) -> Result<ImgInfo, rexiv2::Rexiv2Error> {
     let date_str = metadata.get_tag_string(date_tag)?;
     let model = metadata.get_tag_string(model_tag).unwrap();
     let date = chrono::NaiveDateTime::parse_from_str(&date_str, "%Y:%m:%d  %H:%M:%S").unwrap();
-    let img = ImgInfo { path: entry.path(), date: date, model: model };
+    let sidecar_path = find_sidecar_path(&entry.path());
+    let img = ImgInfo { path: entry.path(), sidecar_path: sidecar_path, date: date, model: model };
     Ok(img)
+}
+
+fn find_sidecar_path(img_path: &Path) -> Option<std::path::PathBuf> {
+    let sidecar_path = img_path.with_file_name(img_path.file_name().unwrap().to_str().unwrap().to_owned() + ".xmp");
+    if sidecar_path.is_file() {
+        return Some(sidecar_path);
+    }
+    return None;
 }
 
 fn reorganize_images(imgs: &Vec<ImgInfo>, prefix: &str, dryrun: &bool) -> std::io::Result<()> {
     let digits = (imgs.len() as f32).log10().ceil() as usize;
-    for (index, img) in imgs.iter().enumerate() {
-        let index = index + 1;
-        let old_path = &img.path;
-        let parent = old_path.parent().unwrap();
-        let date_str = img.date.format("%Y-%m-%d %H-%M-%S");
-        let old_file_name = old_path.file_name().unwrap();
-        let suffix = match old_path.extension() {
-            Some(ext) => format!(".{}", ext.to_str().unwrap()),
-            None => String::from("")
-        };
-        let new_file_name = if prefix.is_empty() {
-            format!("{:0digits$} {} {}{}", index, date_str, img.model, suffix, digits=digits)
+    for (index, img) in (1..).zip(imgs.iter()) {
+        rename_file(&img.path, index, &img, &prefix, digits, dryrun)?;
+        match &img.sidecar_path {
+            Some(path) => rename_file(path, index, &img, &prefix, digits, dryrun)?,
+            None => (),
         }
-        else {
-            format!("{} {:0digits$} {} {}{}", prefix, index, date_str, img.model, suffix, digits=digits)
-        };
-        let new_path = parent.join(&new_file_name);
-        if &new_path != old_path {
-            println!("{}/{{{} -> {}}}", parent.to_str().unwrap(), old_file_name.to_str().unwrap(), new_file_name);
-            if !dryrun {
-                std::fs::rename(&old_path, &new_path)?
-            }
+    }
+    Ok(())
+}
+
+fn rename_file(src_path: &Path, index: usize, img: &ImgInfo, prefix: &str, index_digits: usize, dryrun: &bool) -> std::io::Result<( )> {
+    let parent = src_path.parent().unwrap();
+    let date_str = img.date.format("%Y-%m-%d %H-%M-%S");
+    let src_file_name = src_path.file_name().unwrap();
+    let suffix = match src_path.extension() {
+        Some(ext) => format!(".{}", ext.to_str().unwrap()),
+        None => String::from("")
+    };
+    let target_file_name = if prefix.is_empty() {
+        format!("{:0digits$} {} {}{}", index, date_str, img.model, suffix, digits=index_digits)
+    }
+    else {
+        format!("{} {:0digits$} {} {}{}", prefix, index, date_str, img.model, suffix, digits=index_digits)
+    };
+    let target_path = parent.join(&target_file_name);
+    if &target_path != src_path {
+        println!("{}/{{{} -> {}}}", parent.to_str().unwrap(), src_file_name.to_str().unwrap(), target_file_name);
+        if !dryrun {
+            std::fs::rename(&src_path, &target_path)?
         }
     }
     Ok(())
 }
 
 fn main() {
-    let matches = clap::App::new("Organize images by date")
+    let matches = clap::App::new("Organize images by date and type")
         .version("0.0.1")
         .author("Sebastian Gottfried <sebastian.gottfried@posteo.de>")
         .arg(clap::Arg::with_name("PATH")
