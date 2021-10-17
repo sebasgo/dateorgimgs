@@ -18,6 +18,7 @@ extern crate clap;
 extern crate rexiv2;
 extern crate rayon;
 
+ use std::collections::HashMap;
 use std::path::Path;
 use std::os::unix::ffi::OsStrExt;
 use rayon::prelude::*;
@@ -31,6 +32,43 @@ struct ImgInfo {
 }
 
 
+#[derive(Debug, PartialEq, Eq, Hash)]
+enum ImgRole {
+    Raw,
+    CameraJPG,
+}
+
+#[derive(Debug)]
+#[derive(Default)]
+struct ImgGroup {
+    members: HashMap<ImgRole, ImgInfo>,
+}
+
+impl ImgInfo {
+    fn base_path(&self) -> String {
+        self.path.parent().unwrap().join(self.path.file_stem().unwrap()).into_os_string().into_string().unwrap()
+    }
+
+    fn role(&self) -> Option<ImgRole> {
+        let extension = self.path.extension().unwrap().to_str().unwrap().to_ascii_lowercase();
+        match extension.as_str() {
+            "nef" => Some(ImgRole::Raw),
+            "jpg" => Some(ImgRole::CameraJPG),
+            _ => None
+        }
+    }
+}
+
+impl ImgGroup {
+    fn date(&self) -> &chrono::NaiveDateTime
+    {
+        let first_img = self.members.values().next().expect("can't get date of empty group");
+        &first_img.date
+    }
+}
+
+
+
 fn scan_for_images(dir: &Path) -> std::io::Result<Vec<ImgInfo>> {
     let mut entries: Vec<std::fs::DirEntry> = Vec:: new();
     for entry in std::fs::read_dir(dir)? { 
@@ -40,7 +78,7 @@ fn scan_for_images(dir: &Path) -> std::io::Result<Vec<ImgInfo>> {
         }
         entries.push(entry);
     }
-    let mut imgs: Vec<ImgInfo> = entries.par_iter().filter_map(|ref entry| {
+    let imgs: Vec<ImgInfo> = entries.par_iter().filter_map(|ref entry| {
         match read_img(&entry) {
             Ok(img) => Some(img),
             Err(error) => {
@@ -51,8 +89,20 @@ fn scan_for_images(dir: &Path) -> std::io::Result<Vec<ImgInfo>> {
             }
         }
     }).collect();
-    imgs.sort_by(|a, b| a.date.cmp(&b.date));
     Ok(imgs)
+}
+
+fn build_imgs_groups(imgs: Vec<ImgInfo>) -> Vec<ImgGroup> {
+    let mut img_group_map: HashMap<String, ImgGroup> = HashMap::new();
+    for img in imgs {
+        let role = img.role().unwrap();
+        let key = img.base_path();
+        let group = img_group_map.entry(key).or_insert(Default::default());
+        group.members.insert(role, img);
+    }
+    let mut img_groups: Vec<ImgGroup> = img_group_map.into_values().collect();
+    img_groups.sort_by(|a, b| a.date().cmp(&b.date()));
+    img_groups
 }
 
 
@@ -76,13 +126,15 @@ fn find_sidecar_path(img_path: &Path) -> Option<std::path::PathBuf> {
     return None;
 }
 
-fn reorganize_images(imgs: &Vec<ImgInfo>, prefix: &str, dryrun: &bool) -> std::io::Result<()> {
-    let digits = (imgs.len() as f32).log10().ceil() as usize;
-    for (index, img) in (1..).zip(imgs.iter()) {
-        rename_file(&img.path, index, &img, &prefix, digits, dryrun)?;
-        match &img.sidecar_path {
-            Some(path) => rename_file(path, index, &img, &prefix, digits, dryrun)?,
-            None => (),
+fn reorganize_images(groups: &Vec<ImgGroup>, prefix: &str, dryrun: &bool) -> std::io::Result<()> {
+    let digits = (groups.len() as f32).log10().ceil() as usize;
+    for (index, group) in (1..).zip(groups.iter()) {
+        for img in group.members.values() {
+            rename_file(&img.path, index, &img, &prefix, digits, dryrun)?;
+            match &img.sidecar_path {
+                Some(path) => rename_file(path, index, &img, &prefix, digits, dryrun)?,
+                None => (),
+            }
         }
     }
     Ok(())
@@ -141,7 +193,8 @@ fn main() {
             panic!("Error: {:?}", error)
         },
     };
-    match reorganize_images(&imgs, &prefix, &dryrun) {
+    let img_groups = build_imgs_groups(imgs);
+    match reorganize_images(&img_groups, &prefix, &dryrun) {
         Ok(_) => (),
         Err(error) => {
             panic!("Error: {:?}", error)
