@@ -18,7 +18,7 @@ extern crate clap;
 extern crate rexiv2;
 extern crate rayon;
 
- use std::collections::HashMap;
+use std::collections::HashMap;
 use std::path::Path;
 use std::os::unix::ffi::OsStrExt;
 use rayon::prelude::*;
@@ -170,7 +170,7 @@ fn main() {
         .author("Sebastian Gottfried <sebastian.gottfried@posteo.de>")
         .arg(clap::Arg::with_name("PATH")
             .help("Path to folder with images")
-            .default_value(".")
+            .required(true)
             .index(1))
         .arg(clap::Arg::with_name("dryrun")
             .long("dryrun")
