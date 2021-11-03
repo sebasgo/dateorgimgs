@@ -144,10 +144,18 @@ fn reorganize_images(groups: &Vec<ImgGroup>, prefix: &str, dryrun: &bool) -> std
 fn rename_file(src_path: &Path, index: usize, img: &ImgInfo, prefix: &str, index_digits: usize, dryrun: &bool) -> std::io::Result<( )> {
     let parent = src_path.parent().unwrap();
     let date_str = img.date.format("%Y-%m-%d %H-%M-%S");
-    let src_file_name = src_path.file_name().unwrap();
-    let suffix = match src_path.extension() {
-        Some(ext) => format!(".{}", ext.to_str().unwrap()),
-        None => String::from("")
+    let src_file_name = src_path.file_name().unwrap().to_str().unwrap();
+    let src_file_name_parts: Vec<&str> = src_file_name.split('.').collect();
+    let suffix_parts = match src_file_name_parts.last() {
+        Some(ext) => match ext.to_ascii_lowercase().as_str() {
+            "xmp" => 2,
+            _ => 1
+        },
+        _ => 0
+    };
+    let suffix = match suffix_parts {
+        0 => String::from(""),
+        i => format!(".{}", src_file_name_parts[src_file_name_parts.len()-i..].join("."))
     };
     let target_file_name = if prefix.is_empty() {
         format!("{:0digits$} {} {}{}", index, date_str, img.model, suffix, digits=index_digits)
@@ -157,7 +165,7 @@ fn rename_file(src_path: &Path, index: usize, img: &ImgInfo, prefix: &str, index
     };
     let target_path = parent.join(&target_file_name);
     if &target_path != src_path {
-        println!("{}/{{{} -> {}}}", parent.to_str().unwrap(), src_file_name.to_str().unwrap(), target_file_name);
+        println!("{}/{{{} -> {}}}", parent.to_str().unwrap(), src_file_name, target_file_name);
         if !dryrun {
             std::fs::rename(&src_path, &target_path)?
         }
