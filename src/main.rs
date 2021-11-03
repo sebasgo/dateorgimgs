@@ -189,6 +189,7 @@ fn main() {
             .required(true)
             .index(1))
         .arg(clap::Arg::with_name("dryrun")
+            .short("n")
             .long("dryrun")
             .help("Do not write out changes. Just show what would happen."))
         .arg(clap::Arg::with_name("prefix")
