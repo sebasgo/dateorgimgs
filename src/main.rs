@@ -61,10 +61,17 @@ impl ImgInfo {
 }
 
 impl ImgGroup {
+    fn first_img (&self) -> &ImgInfo {
+        self.members.values().next().expect("can't get first image of empty group")
+    }
+
     fn date(&self) -> &chrono::NaiveDateTime
     {
-        let first_img = self.members.values().next().expect("can't get date of empty group");
-        &first_img.date
+        &self.first_img().date
+    }
+
+    fn base_path(&self) -> String {
+        self.first_img().base_path()
     }
 }
 
@@ -102,7 +109,7 @@ fn build_imgs_groups(imgs: Vec<ImgInfo>) -> Vec<ImgGroup> {
         group.members.insert(role, img);
     }
     let mut img_groups: Vec<ImgGroup> = img_group_map.into_values().collect();
-    img_groups.sort_by(|a, b| a.date().cmp(&b.date()));
+    img_groups.sort_by(|a, b| a.date().cmp(&b.date()).then(a.base_path().cmp(&b.base_path())));
     img_groups
 }
 
