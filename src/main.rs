@@ -53,6 +53,7 @@ impl ImgInfo {
         let extension = self.path.extension().unwrap().to_str().unwrap().to_ascii_lowercase();
         match extension.as_str() {
             "nef" => Some(ImgRole::Raw),
+            "raf" => Some(ImgRole::Raw),
             "jpg" => Some(ImgRole::CameraJPG),
             _ => None
         }
