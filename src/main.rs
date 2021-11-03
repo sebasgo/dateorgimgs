@@ -153,7 +153,7 @@ fn rename_file(src_path: &Path, index: usize, img: &ImgInfo, prefix: &str, index
         format!("{:0digits$} {} {}{}", index, date_str, img.model, suffix, digits=index_digits)
     }
     else {
-        format!("{} {:0digits$} {} {}{}", prefix, index, date_str, img.model, suffix, digits=index_digits)
+        format!("{:0digits$} {} {} {}{}", index, date_str, prefix, img.model, suffix, digits=index_digits)
     };
     let target_path = parent.join(&target_file_name);
     if &target_path != src_path {
