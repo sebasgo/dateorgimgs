@@ -15,13 +15,17 @@
 
 extern crate chrono;
 extern crate clap;
-extern crate rexiv2;
+extern crate lazy_static;
 extern crate rayon;
+extern crate regex;
+extern crate rexiv2;
 
-use std::collections::HashMap;
-use std::path::Path;
-use std::os::unix::ffi::OsStrExt;
+use lazy_static::lazy_static;
 use rayon::prelude::*;
+use regex::Regex;
+use std::collections::HashMap;
+use std::os::unix::ffi::OsStrExt;
+use std::path::Path;
 
 #[derive(PartialEq, Debug)]
 struct ImgInfo {
@@ -83,6 +87,19 @@ fn scan_for_images(dir: &Path) -> std::io::Result<Vec<ImgInfo>> {
         let entry = entry?;
         if entry.path().file_name().unwrap().as_bytes()[0] == b'.' {
             continue;
+        }
+        if let Ok(file_type) = entry.file_type() {
+            if file_type.is_dir() {
+                continue
+            }
+        }
+        else {
+            continue
+        }
+        if let Some(ext) = entry.path().extension() {
+            if ext == "xmp"  {
+                continue;
+            }
         }
         entries.push(entry);
     }
@@ -180,6 +197,27 @@ fn rename_file(src_path: &Path, index: usize, img: &ImgInfo, prefix: &str, index
     Ok(())
 }
 
+fn get_default_prefix(path: &Path) -> Result<String, std::io::Error> {
+    lazy_static! {
+        static ref RE: Regex = Regex::new(r"^[0-9 \-]*(?P<prefix>.*)$").unwrap();
+    }
+    let mut cur = (std::env::current_dir())?;
+    let abs_path = if path.is_absolute() {
+        path.canonicalize()?
+    } else {
+        cur.push(path);
+        cur.canonicalize()?
+    };
+    Ok(String::from(match abs_path.file_name() {
+        Some(file_name) => {
+            RE.captures(file_name.to_str().unwrap()).and_then(|cap| {
+                cap.name("prefix").map(|prefix| prefix.as_str())
+            }).unwrap()
+        }
+        None => ""
+    }))
+}
+
 fn main() {
     let matches = clap::App::new("Organize images by date and type")
         .version("0.0.1")
@@ -198,8 +236,14 @@ fn main() {
             .help("Sets a custom prefix for the generated image file names."))
         .get_matches();
     let path = Path::new(matches.value_of("PATH").unwrap());
+    let default_prefix = match get_default_prefix(path) {
+        Ok(r)=> r,
+        Err(error) => {
+            panic!("Error: {:?}", error)
+        },
+    };
     let dryrun = matches.is_present("dryrun");
-    let prefix = matches.value_of("prefix").unwrap_or("");
+    let prefix = matches.value_of("prefix").unwrap_or(&default_prefix);
     if dryrun {
         println!("Dry run. No changes will be written out.");
     }
