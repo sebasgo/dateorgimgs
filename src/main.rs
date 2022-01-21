@@ -152,7 +152,7 @@ fn find_sidecar_path(img_path: &Path) -> Option<std::path::PathBuf> {
 }
 
 fn reorganize_images(groups: &Vec<ImgGroup>, prefix: &str, dryrun: &bool) -> std::io::Result<()> {
-    let digits = (groups.len() as f32).log10().ceil() as usize;
+    let digits = ((groups.len() + 1) as f32).log10().ceil() as usize;
     for (index, group) in (1..).zip(groups.iter()) {
         for img in group.members.values() {
             rename_file(&img.path, index, &img, &prefix, digits, dryrun)?;
