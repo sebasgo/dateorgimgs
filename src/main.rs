@@ -13,19 +13,27 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+extern crate anyhow;
 extern crate chrono;
 extern crate clap;
 extern crate lazy_static;
+extern crate minidom;
 extern crate rayon;
 extern crate regex;
 extern crate rexiv2;
 
+use anyhow::Result;
 use lazy_static::lazy_static;
+use minidom::Element;
+use minidom::quick_xml;
 use rayon::prelude::*;
 use regex::Regex;
 use std::collections::HashMap;
+use std::fs::File;
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
+
+const RDF_NS: &'static str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
 
 #[derive(PartialEq, Debug)]
 struct ImgInfo {
@@ -151,13 +159,16 @@ fn find_sidecar_path(img_path: &Path) -> Option<std::path::PathBuf> {
     return None;
 }
 
-fn reorganize_images(groups: &Vec<ImgGroup>, prefix: &str, dryrun: &bool) -> std::io::Result<()> {
+fn reorganize_images(groups: &Vec<ImgGroup>, prefix: &str, dryrun: &bool) -> Result<()> {
     let digits = ((groups.len() + 1) as f32).log10().ceil() as usize;
     for (index, group) in (1..).zip(groups.iter()) {
         for img in group.members.values() {
-            rename_file(&img.path, index, &img, &prefix, digits, dryrun)?;
+            let new_img_path = rename_file(&img.path, index, &img, &prefix, digits, dryrun)?;
             match &img.sidecar_path {
-                Some(path) => rename_file(path, index, &img, &prefix, digits, dryrun)?,
+                Some(path) => { 
+                    let new_sidecar_path = rename_file(path, index, &img, &prefix, digits, dryrun)?;
+                    rewrite_sidecar_file(&new_sidecar_path, &new_img_path, dryrun)?;
+                },
                 None => (),
             }
         }
@@ -165,7 +176,7 @@ fn reorganize_images(groups: &Vec<ImgGroup>, prefix: &str, dryrun: &bool) -> std
     Ok(())
 }
 
-fn rename_file(src_path: &Path, index: usize, img: &ImgInfo, prefix: &str, index_digits: usize, dryrun: &bool) -> std::io::Result<( )> {
+fn rename_file(src_path: &Path, index: usize, img: &ImgInfo, prefix: &str, index_digits: usize, dryrun: &bool) -> std::io::Result<std::path::PathBuf> {
     let parent = src_path.parent().unwrap();
     let date_str = img.date.format("%Y-%m-%d %H-%M-%S");
     let src_file_name = src_path.file_name().unwrap().to_str().unwrap();
@@ -193,6 +204,30 @@ fn rename_file(src_path: &Path, index: usize, img: &ImgInfo, prefix: &str, index
         if !dryrun {
             std::fs::rename(&src_path, &target_path)?
         }
+    }
+    Ok(match dryrun {
+        true => src_path.to_path_buf(),
+        false => target_path
+    })
+}
+
+fn rewrite_sidecar_file(sidecar_path: &Path, img_path: &Path, dryrun: &bool) -> Result<(), minidom::Error> {
+    let mut reader = quick_xml::Reader::from_file(sidecar_path)?;
+    let mut root = Element::from_reader(&mut reader)?;
+    let rdf_elem = root.get_child_mut("RDF", RDF_NS)
+        .ok_or(std::io::Error::new(std::io::ErrorKind::InvalidData, "Can't find RDF element in Sidecar file"))?;
+    let rdf_desc_elem = rdf_elem.get_child_mut("Description", RDF_NS)
+        .ok_or(std::io::Error::new(std::io::ErrorKind::InvalidData, "Can't find RDF Description element in Sidecar file"))?;
+    match rdf_desc_elem.attrs_mut().find(|(k, _v)| k == &"xmpMM:DerivedFrom") {
+        Some((_k, v))=> {
+            *v = String::from(img_path.to_str().unwrap());
+            Ok(())
+        },
+        None => Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Can't find DerivedFrom attribute in Sidecar file"))
+    }?;
+    if !dryrun {
+        let mut writer = File::create(sidecar_path)?;
+        root.write_to(&mut writer)?;
     }
     Ok(())
 }
