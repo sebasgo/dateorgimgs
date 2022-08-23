@@ -159,8 +159,11 @@ fn find_sidecar_path(img_path: &Path) -> Option<std::path::PathBuf> {
     return None;
 }
 
-fn reorganize_images(groups: &Vec<ImgGroup>, prefix: &str, dryrun: &bool) -> Result<()> {
-    let digits = ((groups.len() + 1) as f32).log10().ceil() as usize;
+fn reorganize_images(groups: &Vec<ImgGroup>, prefix: &str, dryrun: &bool, digits: Option<&u16>) -> Result<()> {
+    let digits: usize = match digits {
+        Some(d) => (*d).into(),
+        _ => ((groups.len() + 1) as f32).log10().ceil() as usize
+    };
     for (index, group) in (1..).zip(groups.iter()) {
         for img in group.members.values() {
             let new_img_path = rename_file(&img.path, index, &img, &prefix, digits, dryrun)?;
@@ -262,13 +265,18 @@ fn main() {
             .required(true)
             .index(1))
         .arg(clap::Arg::with_name("dryrun")
-            .short("n")
+            .short('n')
             .long("dryrun")
             .help("Do not write out changes. Just show what would happen."))
         .arg(clap::Arg::with_name("prefix")
             .long("prefix")
             .takes_value(true)
             .help("Sets a custom prefix for the generated image file names."))
+        .arg(clap::Arg::with_name("digits")
+            .long("digits")
+            .help("Set number of digits in the counter of the generated image file names.")
+            .takes_value(true)
+            .value_parser(clap::value_parser!(u16).range(1..9)))
         .get_matches();
     let path = Path::new(matches.value_of("PATH").unwrap());
     let default_prefix = match get_default_prefix(path) {
@@ -278,7 +286,8 @@ fn main() {
         },
     };
     let dryrun = matches.is_present("dryrun");
-    let prefix = matches.value_of("prefix").unwrap_or(&default_prefix);
+    let prefix = matches.get_one("prefix").unwrap_or(&default_prefix);
+    let digits: Option<&u16> = matches.get_one("digits");
     if dryrun {
         println!("Dry run. No changes will be written out.");
     }
@@ -290,7 +299,7 @@ fn main() {
         },
     };
     let img_groups = build_imgs_groups(imgs);
-    match reorganize_images(&img_groups, &prefix, &dryrun) {
+    match reorganize_images(&img_groups, &prefix, &dryrun, digits) {
         Ok(_) => (),
         Err(error) => {
             panic!("Error: {:?}", error)
